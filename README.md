@@ -26,3 +26,5 @@ Schema copies match umbrella v1 contracts. See [acceptance evidence](docs/ACCEPT
 ## Opt-in coding task controls
 
 The initial read-only description above applies to default mode. `--enable-tasks` enables create/start/stop and explicit continuation through the separately installed runtime; both packages must share one interpreter. No runtime dependency is required for default viewing. New controls require same-origin JSON/CSRF and fresh per-run model/session consent. The synthetic calc.py fixture has bounded read/write/fixed-test tools; no arbitrary shell or repository path. See umbrella docs/guides/CODING_CONSOLE.md for install/start, limits and offline-only evidence.
+
+Subsequent live result: CAS-CODING-LIVE-001 used unchanged console `d3947eb` through the production UI, with one authorized native coding start, inspector and hash-matching diff/test downloads. No scripted adapter was injected for that run. See umbrella docs/research/CODING_E2E_RESULT_2026-10-14.md; this one-shot approval is consumed.
