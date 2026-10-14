@@ -1,10 +1,20 @@
 [project]
 name = "cas-agent-console"
-version = "0.0.0"
-description = "CAS agent-console: documentation scaffold, implementation pending"
+version = "0.1.0"
+description = "CAS read-only local execution console"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["jsonschema>=4.20,<5"]
 
-[tool.uv]
-package = false
+[project.scripts]
+cas-console = "agent_console.server:main"
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_console"]
+
+[tool.hatch.build.targets.wheel.force-include]
+static = "agent_console/static"

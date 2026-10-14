@@ -1,10 +1,9 @@
-# Implementation handoff
+# Implementation status
 
-Start with sanitized v1 task/scenario fixtures, safe record reading and loopback HTTP endpoints. Package static/index.html, styles.css and app.js with the app; no React/Vite or build framework. Acceptance includes corrupt/partial data, timeline, tool/hook/permission/subagent detail, usage provenance, errors, artifacts, comparison and stored-XSS tests.
+The first local agent-console implementation is available. Its README defines exact install,
+test and build commands; package dependencies are independently locked. No remote has
+been configured and no model call or external publication was performed.
 
-This repository has no tests or runtime code yet. Add meaningful deterministic tests
-before integration behavior; live SDK tests are a separate opt-in tier. Record exact
-commands and prerequisites here when they exist. Read the umbrella requirements,
-contract v1 proposal, security guide and scenario catalog before implementation.
-Preserve the repository boundary and independent dependency history. No orchestration
-framework or speculative provider abstraction is permitted by SPEC.
+See umbrella docs/review/IMPLEMENTATION.md for cross-component evidence and remaining
+limitations. Application changes belong in this repository, shared contracts and research
+conclusions in umbrella. Offline test results never establish native SDK/model behavior.

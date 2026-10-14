@@ -1,24 +1,25 @@
 # agent-console
 
-A read-only local web inspection application using Python standard-library HTTP serving and vanilla JavaScript. It reads versioned CAS records without importing runtime internals or receiving SDK credentials.
+Independent read-only CAS console using Python standard-library HTTP and vanilla JS.
+It consumes local versioned JSON/JSONL; it never imports runtime internals or executes
+agents. No runtime credentials are needed. Component remote is still unset.
 
-**Status: local repository scaffold only.** No executable application, CLI, SDK/MCP
-integration or service has been implemented. The suggested remote name `cas-agent-console`
-is not a confirmed repository URL. No remote is configured or published.
+```powershell
+uv sync --locked
+uv run --locked --offline cas-console --data-dir <CAS-data-directory> --port 8765
+uv run --locked --offline python -m unittest discover -s tests -v
+uv build --offline
+```
 
-This repository owns its application source, dependencies, tests, lockfile and local
-documentation. Cross-project requirements and proposed v1 contracts live in the CAS
-umbrella repository supplied by the owner: <https://github.com/alex-kzr/claude-agent-sdk>.
-Use its `docs/contracts/DATA_CONTRACT.md` and `docs/plans/2026-10-14-cas-foundation.md`
-from a known umbrella commit; remote file availability has not been verified.
+Use an existing data directory, for example umbrella `data/` after running local platform
+checks. Server binds only `127.0.0.1`; open its printed loopback URL. Stop with Ctrl+C.
+Runtime `cas-cli console` can launch this independently installed application.
 
-## Development direction
+Features: history/filtering, summary, session/provider metadata, results/validation,
+event timeline with tool/hook/permission/subagent filters, native/derived usage provenance,
+errors, approved artifact downloads, local capability catalog and context-aware comparison.
+Missing native data is explicit. No mutation endpoints, remote access or production claim.
 
-Use Python 3.12+, a future `src/agent_console/` package and `tests/` directory as real code
-is added. No empty module tree or placeholder executable is supplied. `pyproject.toml`
-is metadata, with no build backend, entry point or runtime dependency yet. Add only
-the dependencies the first implementation needs, generate/review `uv.lock`, and then
-document `uv sync --locked`. Do not claim installability before packaging is tested.
-
-Do not run models, activate credentials, start Docker, expose diagnostics or publish
-this repository during scaffolding. Review [component acceptance](docs/IMPLEMENTATION.md).
+Wheel packaging includes top-level static assets. Editable development falls back only
+to this owning checkout's static directory; standalone wheels use packaged resources.
+Schema copies match umbrella v1 contracts. See [acceptance evidence](docs/ACCEPTANCE.md).
