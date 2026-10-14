@@ -48,7 +48,7 @@ async function inspect(runId) {
   const data = await api(`/api/runs/${runId}`), run = data.run;
   if (epoch !== selectionEpoch) return;
   $("detail-title").textContent = label(run); $("detail").hidden = false;
-  $("detail-summary").replaceChildren(card("Status", run.status), card("Evidence", run.evidence_status), card("Provider", run.provider.name));
+  $("detail-summary").replaceChildren(card("Status", run.status), card("Evidence", run.evidence_status), card("Provider", run.provider.name), card("Authentication mode", run.configuration?.execution_mode === "offline" ? "Offline - no authentication" : (run.configuration?.auth_mode || "Unknown - legacy record")));
   $("result").textContent = pretty(data.result ? {summary:data.result.summary, validation:data.result.validation, assertions:data.assertions} : null);
   $("session").textContent = pretty({session_id:run.session_id, provider:run.provider, resumes_run_id:run.resumes_run_id, retry_of_run_id:run.retry_of_run_id});
   $("usage").textContent = pretty(run.usage); $("errors").textContent = run.error ? pretty(run.error) : "No recorded error";
