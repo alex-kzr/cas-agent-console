@@ -42,6 +42,27 @@ async function history(reset = true) {
   } finally { historyLoading = false; $("refresh").disabled = false; $("more").disabled = false; }
 }
 function card(title, value) { const item = node("div", null, "card"); item.append(node("small", title), node("strong", value)); return item; }
+function renderUsageComparison(comparison, run = null) {
+  const target = $('usage-comparison'); target.replaceChildren();
+  const statuses = new Set(['scope-unverified','unavailable','partial-observed-values','different-observed-values','equal-observed-values']);
+  if (!comparison || comparison.version !== 1 || typeof comparison.status !== 'string' || !statuses.has(comparison.status) || !comparison.fields || typeof comparison.fields !== 'object' || Array.isArray(comparison.fields)) {
+    target.append(node('p', 'No usage comparison recorded. Native and observed values remain separate.', 'muted')); return;
+  }
+  target.append(node('p', `Recorded usage: ${comparison.status}. Derived usage remains incomplete; billing and scope equality are unverified.`, 'warning'));
+  const table = node('table'), head = node('tr');
+  for (const title of ['Token field', 'Native', 'Observed derived', 'Native minus derived']) head.append(node('th', title));
+  table.append(head);
+  const count = value => Number.isSafeInteger(value) && value >= 0;
+  const display = value => count(value) ? String(value) : 'Unknown';
+  const withhold = comparison.status === 'scope-unverified' || Boolean(run?.resumes_run_id) || run?.usage?.application?.subagent_activity_observed === true;
+  for (const name of ['input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens']) {
+    const values = comparison.fields?.[name], row = node('tr');
+    const delta = !withhold && count(values?.native) && count(values?.derived) && Number.isSafeInteger(values?.native_minus_derived) && values.native_minus_derived === values.native - values.derived ? String(values.native_minus_derived) : 'Unknown';
+    row.append(node('td', name), node('td', display(values?.native)), node('td', display(values?.derived)), node('td', delta));
+    table.append(row);
+  }
+  target.append(table);
+}
 async function inspect(runId) {
   const epoch = ++selectionEpoch;
   currentRun = runId; events = []; nextSeq = 0;
@@ -51,7 +72,7 @@ async function inspect(runId) {
   $("detail-summary").replaceChildren(card("Status", run.status), card("Evidence", run.evidence_status), card("Provider", run.provider.name), card("Authentication mode", run.configuration?.execution_mode === "offline" ? "Offline - no authentication" : (run.configuration?.auth_mode || "Unknown - legacy record")));
   $("result").textContent = pretty(data.result ? {summary:data.result.summary, validation:data.result.validation, assertions:data.assertions} : null);
   $("session").textContent = pretty({session_id:run.session_id, provider:run.provider, resumes_run_id:run.resumes_run_id, retry_of_run_id:run.retry_of_run_id});
-  $("usage").textContent = pretty(run.usage); $("errors").textContent = run.error ? pretty(run.error) : "No recorded error";
+  $("usage").textContent = pretty(run.usage); renderUsageComparison(run.usage?.application?.comparison, run); $("errors").textContent = run.error ? pretty(run.error) : "No recorded error";
   $("artifacts").replaceChildren();
   for (const artifact of data.artifacts?.artifacts || []) {
     const link = node("a", `${artifact.path} · ${artifact.size_bytes} bytes`);

@@ -30,3 +30,5 @@ The initial read-only description above applies to default mode. `--enable-tasks
 Subsequent live result: CAS-CODING-LIVE-001 used unchanged console `d3947eb` through the production UI, with one authorized native coding start, inspector and hash-matching diff/test downloads. No scripted adapter was injected for that run. See umbrella docs/research/CODING_E2E_RESULT_2026-10-14.md; this one-shot approval is consumed.
 
 Session/restart hardening adds local continuation eligibility/reasons, disabled unavailable actions and truthful recovery notes. GET inspection performs no native history lookup. Synthetic browser acceptance verifies this UI; native resume remains unverified. See umbrella docs/review/SESSION_RECOVERY_2026-10-14.md.
+
+The usage inspector shows recorded native/derived token comparisons with Unknown/incomplete/scope warnings. It neither reconciles historical counts nor computes billing totals. Offline DOM regression: `node tests/usage_comparison.test.cjs`; no npm dependencies are required.
