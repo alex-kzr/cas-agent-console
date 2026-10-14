@@ -69,7 +69,7 @@ class ApiTests(unittest.TestCase):
     def test_no_mutation_routes(self):
         before = (self.directory / "run.json").read_bytes()
         status, _, _ = self.request("/api/runs", method="POST")
-        self.assertEqual(status, 501)
+        self.assertEqual(status, 403)
         self.assertEqual((self.directory / "run.json").read_bytes(), before)
 
     def test_bad_ids_traversal_and_pagination(self):

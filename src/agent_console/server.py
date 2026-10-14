@@ -24,7 +24,7 @@ class DataError(ValueError):
 
 
 def asset_bytes(name: str) -> bytes:
-    if name not in {"index.html", "styles.css", "app.js"}:
+    if name not in {"index.html", "styles.css", "app.js", "tasks.js"}:
         raise DataError("Unknown asset", 404)
     packaged = files("agent_console").joinpath("static", name)
     if packaged.is_file():
@@ -241,8 +241,9 @@ class Store:
 
 
 class Handler(BaseHTTPRequestHandler):
-    def __init__(self, *args, store: Store, **kwargs):
+    def __init__(self, *args, store: Store, control=None, **kwargs):
         self.store = store
+        self.control = control
         super().__init__(*args, **kwargs)
 
     def log_message(self, *_):
@@ -297,7 +298,9 @@ class Handler(BaseHTTPRequestHandler):
                     raise DataError("Pagination outside allowed range", 400)
                 return result
 
-            if path == "/api/runs":
+            if path == '/api/control':
+                self.json(self.control.info() if self.control else {'enabled': False})
+            elif path == "/api/runs":
                 self.json(
                     self.store.runs(
                         number("limit", 100, 500), number("offset", 0, 5000)
@@ -328,12 +331,13 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 else:
                     raise DataError("Unknown endpoint", 404)
-            elif path in {"/", "/index.html", "/styles.css", "/app.js"}:
+            elif path in {"/", "/index.html", "/styles.css", "/app.js", "/tasks.js"}:
                 name = "index.html" if path == "/" else path[1:]
                 media_type = {
                     "index.html": "text/html",
                     "styles.css": "text/css",
                     "app.js": "text/javascript",
+                    "tasks.js": "text/javascript",
                 }[name]
                 self.respond(asset_bytes(name), media_type + "; charset=utf-8")
             else:
@@ -344,10 +348,25 @@ class Handler(BaseHTTPRequestHandler):
             self.json({"error": "Unavailable or corrupt local data"}, 422)
 
 
-def create_server(data_dir: Path, host="127.0.0.1", port=8765):
+    def do_POST(self):
+        try:
+            if self.control is None:
+                raise DataError('Task control is disabled', 403)
+            self.json(self.control.post(self), 200)
+        except DataError as error:
+            self.json({'error': str(error)}, error.status)
+        except ValueError as error:
+            self.json({'error': str(error)[:256]}, 409)
+        except (OSError, RuntimeError, KeyError):
+            self.json({'error': 'Task operation rejected; refresh state and check consent/eligibility'}, 409)
+
+
+def create_server(data_dir: Path, host="127.0.0.1", port=8765, *, controller=None):
     if host != "127.0.0.1" or not 0 <= port <= 65535:
         raise ValueError("Console only supports 127.0.0.1")
-    return ThreadingHTTPServer((host, port), partial(Handler, store=Store(data_dir)))
+    from agent_console.control import ControlBridge
+    bridge = ControlBridge(controller) if controller is not None else None
+    return ThreadingHTTPServer((host, port), partial(Handler, store=Store(data_dir), control=bridge))
 
 
 def main(argv=None) -> int:
@@ -355,12 +374,26 @@ def main(argv=None) -> int:
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument('--enable-tasks', action='store_true',
+                        help='Enable coding-fixture task controls; requires separately installed runtime')
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
         parser.error("Port must be in 1..65535")
-    with create_server(args.data_dir, args.host, args.port) as server:
+    controller = None
+    if args.enable_tasks:
+        from agent_runtime.tasks.control import TaskControl
+        controller = TaskControl(args.data_dir)
+    try:
+        return serve(args, controller)
+    finally:
+        if controller is not None:
+            controller.close()
+
+
+def serve(args, controller):
+    with create_server(args.data_dir, args.host, args.port, controller=controller) as server:
         print(
-            f"CAS read-only console: http://127.0.0.1:{server.server_port}", flush=True
+            f"CAS console: http://127.0.0.1:{server.server_port}", flush=True
         )
         try:
             server.serve_forever()

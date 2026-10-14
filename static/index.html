@@ -4,12 +4,28 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CAS · Execution console</title><link rel="stylesheet" href="/styles.css">
   <script src="/app.js" defer></script>
+  <script src="/tasks.js" defer></script>
 </head>
 <body>
   <header><a class="brand" href="/" aria-label="CAS console home"><span class="mark">C</span> CAS <span class="muted">/ Agent Platform</span></a><span class="local"><span class="dot"></span> Local · Read only</span></header>
   <main>
     <section class="heading"><div><p class="eyebrow">EXECUTION WORKSPACE</p><h1>Understand every run.</h1><p class="intro">Inspect tasks, scenarios and the evidence behind their outcomes.</p></div><button id="refresh">Refresh history ↻</button></section>
-    <div class="notice">Live SDK behavior remains unverified. Offline checks validate the platform; they do not simulate model results.</div>
+    <div class="notice">Context isolation remains unverified. Offline checks validate platform behavior; native coding and session resume still require bounded live verification.</div>
+    <section id="task-controls" class="panel" hidden>
+      <p class="eyebrow">CODING FIXTURE</p><h2>Fix a function. Inspect the evidence.</h2>
+      <p>Disposable calc.py only. Three tools: read file, write pure arithmetic function, run fixed tests. Subscription / claude-haiku-5-5; 6 turns, 60 seconds, SDK budget threshold $0.10. Billing is not capped or guaranteed by this estimate.</p>
+      <p class="muted">Application controls are not an OS sandbox. Native account context and session refresh/network may still occur. No automatic retries, login or API fallback.</p>
+      <button id="create-task">Create fixture task</button>
+      <div class="toolbar"><label for="resume-run">Previous run ID</label><input id="resume-run" autocomplete="off" placeholder="Eligible terminal run UUID"><button id="resume-task">Prepare continuation</button></div>
+      <div id="control-tasks" class="cards"></div>
+      <div id="run-consent" hidden>
+        <p id="consent-task"></p>
+        <label><input type="checkbox" id="consent-live"> Authorize this one model run with the displayed data, tools and limits.</label><br>
+        <label><input type="checkbox" id="consent-login"> Allow existing native subscription-session reuse and possible refresh/network for this run.</label>
+        <p><button id="start-task">Start this run</button><button id="dismiss-consent">Dismiss</button></p>
+      </div>
+      <p id="control-status" role="status" aria-live="polite"></p>
+    </section>
     <section class="metrics" aria-label="Run counts"><article><span>Total runs</span><strong id="total">—</strong></article><article><span>Completed</span><strong id="completed">—</strong></article><article><span>Need attention</span><strong id="attention">—</strong></article><article><span>SDK cost estimate</span><strong id="cost">Unknown</strong><small>Missing usage is never zero</small></article></section>
     <nav aria-label="Console views"><button class="tab active" id="history-tab">Execution history</button><button class="tab" id="capabilities-tab">Platform checks</button></nav>
     <section id="history"><div class="toolbar"><label for="filter">Show <select id="filter"><option value="all">All executions</option><option value="task">Tasks</option><option value="scenario">Scenarios</option></select></label><span id="count" class="muted"></span></div><div id="warnings" role="status"></div><div class="table-scroll"><table><thead><tr><th>Execution</th><th>Kind</th><th>Status</th><th>Started / created</th><th>Duration</th><th>Compare</th></tr></thead><tbody id="runs"></tbody></table></div><p id="empty" class="empty" hidden>No executions yet. Run an offline platform check with cas-cli to create real local evidence.</p><div class="footer-actions"><button id="more" hidden>Load more</button><button id="compare" disabled>Compare selected runs</button></div></section>
