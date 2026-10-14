@@ -1,0 +1,10 @@
+[project]
+name = "cas-agent-console"
+version = "0.0.0"
+description = "CAS agent-console: documentation scaffold, implementation pending"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+package = false
