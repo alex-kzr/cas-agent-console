@@ -43,6 +43,11 @@
       const card = document.createElement("article"), title = document.createElement("p");
       card.className = "card";
       title.textContent = `${task.task_id} — ${task.status}`; card.append(title);
+      if (task.recovery) {
+        const recovered = document.createElement('p');
+        recovered.textContent = `Recovered after restart: ${task.recovery.reason}. No automatic replay.`;
+        card.append(recovered);
+      }
       if (task.status === "DRAFT") card.append(button("Review and start", async () => consent(task)));
       if (["STARTING", "RUNNING"].includes(task.status)) card.append(button("Stop run", async () => {
         await post(`/api/tasks/${task.task_id}/stop`, {}); status("Stop requested; waiting for owned-tree cleanup."); await refresh();
@@ -50,10 +55,19 @@
       if (task.run_id) {
         const detail = document.createElement("p"); detail.textContent = `Run: ${task.run_id}`; card.append(detail);
         card.append(button('Inspect result and artifacts', async () => window.inspect(task.run_id)));
-        if (terminal.has(task.status)) card.append(button("Prepare continuation", async () => {
-          const next = await post("/api/tasks", {resumes_run_id:task.run_id});
-          await refresh(); consent(next);
-        }));
+        if (terminal.has(task.status)) {
+          const continuation = task.continuation;
+          const reason = document.createElement('p');
+          reason.textContent = continuation?.reason || 'Local continuation eligibility is unavailable.';
+          card.append(reason);
+          const prepare = button('Prepare continuation', async () => {
+            const next = await post('/api/tasks', {resumes_run_id:task.run_id});
+            await refresh(); consent(next);
+          });
+          prepare.disabled = continuation?.eligible !== true;
+          prepare.title = reason.textContent;
+          card.append(prepare);
+        }
       }
       container.append(card);
     }
