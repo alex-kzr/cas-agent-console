@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>CAS · Repository analysis</title><link rel="stylesheet" href="/analysis.css"><script src="/analysis.js" defer></script></head>
+<body>
+<header><a class="brand" href="/analysis">C <span>CAS / Agent Platform</span></a><a href="/">Execution history ↗</a></header>
+<main>
+  <section class="heading"><p class="eyebrow">READ-ONLY WORKSPACE</p><h1>Understand the code.<br>Keep the evidence.</h1><p class="intro">Run a bounded local sample analysis, inspect verified facts, and take the sources with your report.</p><p class="mode">Offline sample · No model calls · No repository upload</p></section>
+  <div class="layout">
+    <section class="panel"><p class="eyebrow">01 / APPROVED INPUT</p><h2>Choose a repository</h2><label for="repository">Repository</label><select id="repository"></select><p class="muted">Only these sample files are available:</p><ul id="approved-files"></ul><label for="question">Analysis question</label><select id="question"></select><p class="muted">This version checks a small synthetic repository. It does not open your projects, use Claude, write source files, or request credentials.</p><button id="prepare" disabled>Prepare analysis</button><p id="status" role="status" aria-live="polite"></p></section>
+    <section class="panel"><div class="panel-title"><div><p class="eyebrow">02 / EXECUTIONS</p><h2>Analysis history</h2></div><button id="refresh" class="secondary">Refresh</button></div><div id="jobs"><p>No analysis yet.</p></div><p class="muted">A run starts only when you select Start. Refreshing never replays a run.</p></section>
+  </div>
+  <section id="report-panel" class="panel" hidden><div class="panel-title"><div><p class="eyebrow">03 / SOURCE-GROUNDED RESULT</p><h2>Repository report</h2></div><a id="download" class="button" download>Download report + sources</a></div><p id="provenance" class="muted"></p><div id="claims"></div><details><summary>Markdown report and source hashes</summary><pre id="markdown"></pre></details></section>
+  <p id="error" class="error" role="alert" hidden></p>
+</main><footer>CAS local analysis · Source facts validated independently against approved snapshots. Live model analysis is not enabled.</footer>
+</body></html>
