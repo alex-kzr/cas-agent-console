@@ -25,3 +25,17 @@ assert.match(texts(map.get("jobs")),/Start offline analysis/);
 assert.match(texts(map.get("jobs")),/Open report/);
 assert.match(texts(map.get("jobs")),/will not replay/);
 console.log("Analysis UI DOM: 8 assertions PASS");
+
+context.jobs=[{job_id:"sdk-draft",status:"DRAFT",question:"overview",mode:"sdk"}];
+vm.runInContext("renderJobs(jobs)",context);
+assert.match(texts(map.get("jobs")),/Review SDK payload/);
+assert.doesNotMatch(texts(map.get("jobs")),/Start offline analysis/);
+context.fetch=async()=>({ok:true,json:async()=>({live_enabled:false,model:"claude-haiku-5-5",recipient:"synthetic",limits:{max_turns:1,max_budget_usd:"0.02",timeout_seconds:30},query_text:"<script>preview</script>",snapshot_sha256:"synthetic"})});
+vm.runInContext('showPreview("sdk-draft")',context).then(()=>{
+ const panel=map.get("sdk-preview");assert.match(texts(panel),/Live gate closed/);
+ assert.equal(panel.children[3].tag,"pre");assert.equal(panel.children[3].textContent,"<script>preview</script>");
+ const first=panel.children[4].children[0], second=panel.children[5].children[0], start=panel.children[6];
+ assert.equal(first.checked,false);assert.equal(second.checked,false);assert.equal(start.disabled,true);
+ first.checked=second.checked=true;first.listeners.change();assert.equal(start.disabled,true);
+ console.log("SDK preview DOM: closed gate, fresh consent and literal payload PASS");
+}).catch(error=>{console.error(error);process.exitCode=1;});

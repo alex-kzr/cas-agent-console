@@ -66,12 +66,14 @@ class AnalysisHandler(Handler):
             parts = path.strip("/").split("/")
             if path == "/api/analysis":
                 from agent_runtime.tasks.repository_analysis import QUESTIONS, SAMPLE
+                from agent_runtime.tasks.repository_analysis_sdk import LIVE_ANALYSIS_ENABLED
 
                 return self.json(
                     {
                         "csrf": self.token,
                         "mode": "offline-scripted-sample",
                         "model_requests": 0,
+                        "sdk_live_enabled": LIVE_ANALYSIS_ENABLED,
                         "repositories": [
                             {
                                 "id": "tiny-shop",
@@ -85,6 +87,8 @@ class AnalysisHandler(Handler):
                 )
             if len(parts) == 5 and parts[:3] == ["api", "analysis", "jobs"]:
                 job_id, action = parts[3:]
+                if action == "preview":
+                    return self.json(self.analysis.preview(job_id))
                 if action == "report":
                     return self.json(self.analysis.report(job_id))
                 if action == "download":
@@ -128,13 +132,19 @@ class AnalysisHandler(Handler):
             value = json.loads(self.rfile.read(length), object_pairs_hook=unique)
             if type(value) is not dict:
                 raise ValueError("Expected object")
-            if self.path == "/api/analysis/jobs" and set(value) == {"repository", "question"}:
+            if self.path == "/api/analysis/jobs" and set(value) in (
+                {"repository", "question"},
+                {"repository", "question", "files", "mode"},
+            ):
                 return self.json(self.analysis.create(**value))
             parts = self.path.strip("/").split("/")
-            if len(parts) == 5 and parts[:3] == ["api", "analysis", "jobs"] and value == {}:
-                if parts[4] == "start":
-                    return self.json(self.analysis.start(parts[3]))
-                if parts[4] == "stop":
+            if len(parts) == 5 and parts[:3] == ["api", "analysis", "jobs"]:
+                if parts[4] == "start" and set(value) in (
+                    set(),
+                    {"allow_live", "allow_existing_login", "snapshot_sha256"},
+                ):
+                    return self.json(self.analysis.start(parts[3], **value))
+                if parts[4] == "stop" and value == {}:
                     return self.json(self.analysis.stop(parts[3]))
             raise ValueError("Unknown analysis operation")
         except PermissionError:

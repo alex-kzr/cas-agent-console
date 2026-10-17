@@ -59,6 +59,51 @@ class AnalysisHTTPTests(unittest.TestCase):
         self.assertEqual(status, 200)
         return json.loads(body)
 
+    def test_sdk_preview_closed_start_and_explicit_snapshot_boundary(self):
+        status, body, _ = self.request(
+            "POST",
+            "/api/analysis/jobs",
+            {
+                "repository": "tiny-shop",
+                "question": "overview",
+                "mode": "sdk",
+                "files": ["README.md"],
+            },
+            self.headers,
+        )
+        self.assertEqual(status, 200)
+        job = json.loads(body)
+        path = "/api/analysis/jobs/" + job["job_id"]
+        status, body, _ = self.request("GET", path + "/preview")
+        self.assertEqual(status, 200)
+        preview = json.loads(body)
+        self.assertFalse(preview["live_enabled"])
+        self.assertEqual([s["path"] for s in preview["payload"]["snapshots"]], ["README.md"])
+        consent = {
+            "allow_live": True,
+            "allow_existing_login": True,
+            "snapshot_sha256": preview["snapshot_sha256"],
+        }
+        self.assertEqual(self.request("POST", path + "/start", consent, self.headers)[0], 403)
+        self.assertFalse((self.control.root / "runs").exists())
+        self.assertEqual(self.request("GET", path + "/files/inventory.py")[0], 409)
+        self.assertEqual(self.control.load(job["job_id"])["status"], "DRAFT")
+        for names in ([], ["../README.md"], ["README.md", "README.md"]):
+            self.assertEqual(
+                self.request(
+                    "POST",
+                    "/api/analysis/jobs",
+                    {
+                        "repository": "tiny-shop",
+                        "question": "overview",
+                        "mode": "sdk",
+                        "files": names,
+                    },
+                    self.headers,
+                )[0],
+                409,
+            )
+
     def test_ui_to_backend_report_source_links_export_and_readonly_history(self):
         status, html, headers = self.request("GET", "/analysis")
         self.assertEqual(status, 200)
