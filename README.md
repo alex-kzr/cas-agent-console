@@ -6,9 +6,14 @@ It consumes local versioned JSON/JSONL; default mode imports no runtime internal
 ```powershell
 uv sync --locked
 uv run --locked --offline cas-console --data-dir <CAS-data-directory> --port 8765
-uv run --locked --offline python -m unittest discover -s tests -v
 uv build --offline
 ```
+
+The standalone console environment intentionally has no SDK/runtime dependency, so it
+cannot run every test: HTTP integration tests need the runtime's pinned `claude-agent-sdk`
+metadata. Run the full console suite through the shared existing-environment workflow in
+umbrella [GETTING_STARTED](../../docs/guides/GETTING_STARTED.md#tests-and-builds)
+(`<python> -B -I -S tools/run_component_tests.py console` from the umbrella root).
 
 Use an existing data directory, for example umbrella `data/` after running local platform
 checks. Server binds only `127.0.0.1`; open its printed loopback URL. Stop with Ctrl+C.
