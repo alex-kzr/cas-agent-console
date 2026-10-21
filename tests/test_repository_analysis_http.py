@@ -104,6 +104,41 @@ class AnalysisHTTPTests(unittest.TestCase):
                 409,
             )
 
+    def test_review_question_selects_versioned_findings_and_needs_sdk_mode(self):
+        status, body, _ = self.request("GET", "/api/analysis")
+        self.assertIn("review", json.loads(body)["questions"])
+        offline = {"repository": "tiny-shop", "question": "review"}
+        self.assertEqual(self.request("POST", "/api/analysis/jobs", offline, self.headers)[0], 409)
+        self.assertEqual(
+            self.request(
+                "POST",
+                "/api/analysis/jobs",
+                offline | {"mode": "offline", "files": ["README.md"]},
+                self.headers,
+            )[0],
+            409,
+        )
+        self.assertEqual(self.control.list(), [])
+        status, body, _ = self.request(
+            "POST",
+            "/api/analysis/jobs",
+            offline | {"mode": "sdk", "files": ["inventory.py"]},
+            self.headers,
+        )
+        self.assertEqual(status, 200)
+        job = json.loads(body)
+        status, body, _ = self.request("GET", f"/api/analysis/jobs/{job['job_id']}/preview")
+        self.assertEqual(status, 200)
+        preview = json.loads(body)
+        self.assertEqual(preview["payload"]["schema_version"], 2)
+        self.assertFalse(preview["live_enabled"])
+        # A v1 question keeps the historical payload version.
+        overview = self.control.create("tiny-shop", "overview", ["README.md"], "sdk")
+        status, body, _ = self.request("GET", f"/api/analysis/jobs/{overview['job_id']}/preview")
+        self.assertEqual(json.loads(body)["payload"]["schema_version"], 1)
+        # No completed review exists, so no report is invented.
+        self.assertEqual(self.request("GET", f"/api/analysis/jobs/{job['job_id']}/report")[0], 409)
+
     def test_ui_to_backend_report_source_links_export_and_readonly_history(self):
         status, html, headers = self.request("GET", "/analysis")
         self.assertEqual(status, 200)

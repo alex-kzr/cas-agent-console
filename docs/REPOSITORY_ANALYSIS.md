@@ -74,6 +74,33 @@ status proves provider cancellation or stopped billing. Invalid reports and raw 
 errors are not published as accepted reports; public errors use safe codes. Source
 snapshots are revalidated before checkpoint/export. No replay or retry is automatic.
 
+## Review findings and request ordering
+
+The **review** question uses report version 2 (see `docs/contracts/ANALYSIS_FINDINGS.md`):
+bounded prose problem/impact/suggested fix with a selected file, real line and hash.
+It needs SDK mode, so the page switches the mode for you and the offline sample never
+fabricates a review. The page shows file:line links to the snapshot and states that the
+prose is screened, not verified as correct. Overview/functions reports render as before.
+
+A review may report no findings; the page then shows "No findings reported" and says this
+is not proof that the selected files are correct.
+
+Request ordering on this page: only the newest refresh answer is rendered, and report and
+preview selections share one generation, so the newest selection of either kind wins and
+older answers and their errors are dropped silently (this is not provider cancellation).
+Selecting a report drops a shown preview and its consent.
+One mutation runs at a time; after any failed or unknown mutation the page re-reads state
+and never replays it. If the re-read also fails, mutations stay
+locked (prepare/start/stop refused locally, no automatic retry) until an explicit Refresh
+succeeds; this includes HTTP error statuses such as 500, because a server failure can follow an
+applied change. A terminal status is not replaced by a late non-terminal view, and a
+Stop rejected because the run already finished is reported as such. Preview consents are
+single use and bound to the job, profile and snapshot; a changed job hides the preview.
+Stop is described as a local request, not proof of provider cancellation.
+
+DOM regression for these: `node tests/analysis_races.test.cjs` (delayed fetches released
+by the test, no timers).
+
 Live/native/auth behavior has not been exercised for this path. The single future
 scope and fresh-session review handoff live in the umbrella
 `docs/review/REPOSITORY_ANALYSIS_SDK_2026-10-17.md`. Keep the gate closed pending that
