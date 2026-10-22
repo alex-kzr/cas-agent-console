@@ -65,15 +65,31 @@ class AnalysisHandler(Handler):
                 return self.respond(asset(name), media + "; charset=utf-8")
             parts = path.strip("/").split("/")
             if path == "/api/analysis":
+                from agent_runtime.tasks import review_profile
                 from agent_runtime.tasks.repository_analysis import QUESTIONS, SAMPLE
                 from agent_runtime.tasks.repository_analysis_sdk import LIVE_ANALYSIS_ENABLED
 
+                try:
+                    profile = self.analysis.profile
+                    scope = {
+                        "mode": review_profile.SCOPE_MODE,
+                        "label": "Synthetic mean.py review (own closed gate)",
+                        "repository": profile.repository,
+                        "question": profile.question_key,
+                        "files": profile.source_names,
+                        "scope_sha256": profile.fingerprint,
+                        "live_enabled": review_profile.MEAN_REVIEW_LIVE_ENABLED,
+                    }
+                except ValueError:
+                    scope = None  # An invalid profile only removes this scope, never the page.
                 return self.json(
                     {
                         "csrf": self.token,
                         "mode": "offline-scripted-sample",
                         "model_requests": 0,
                         "sdk_live_enabled": LIVE_ANALYSIS_ENABLED,
+                        # One fixed, separately gated synthetic scope; no generic profile list.
+                        "review_scope": scope,
                         "repositories": [
                             {
                                 "id": "tiny-shop",
@@ -142,6 +158,7 @@ class AnalysisHandler(Handler):
                 if parts[4] == "start" and set(value) in (
                     set(),
                     {"allow_live", "allow_existing_login", "snapshot_sha256"},
+                    {"allow_live", "allow_existing_login", "snapshot_sha256", "scope_sha256"},
                 ):
                     return self.json(self.analysis.start(parts[3], **value))
                 if parts[4] == "stop" and value == {}:

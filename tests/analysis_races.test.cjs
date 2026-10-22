@@ -364,6 +364,101 @@ async function main() {
     assert.match(page.byId("provenance").textContent,/No findings reported/);
     assert.doesNotMatch(page.byId("provenance").textContent,/0 bounded findings/);
   });
+  // -- fixed mean.py scope: synthetic identity and mock responses only ---------------------------
+  const BOUND_NAMES=["logical_queries","max_turns","observed_turns","budget_usd","execution_seconds","idle_seconds","stream_deadline_seconds","cleanup_seconds","finalize_seconds","watchdog_seconds","max_messages","max_frames","worker_events","parent_events","max_frame_bytes","max_wire_bytes","worker_journal_bytes","parent_import_bytes","max_raw_final_bytes","max_canonical_bytes","max_input_bytes","max_response_bytes","max_stderr_bytes"];
+  const SCOPE_SHA="a".repeat(64);
+  const scopeIdentity=()=>({profile_id:"synthetic-profile",model:"claude-haiku-5-5",repository:"tiny-shop",question:"review",source:{path:"mean.py",bytes:122,sha256:"b".repeat(64)},instruction_sha256:"c".repeat(64),query_bytes:1272,query_sha256:"d".repeat(64),bounds:Object.fromEntries(BOUND_NAMES.map((name,index)=>[name,name==="budget_usd"?"0.05":1000+index])),tools:[],partial_messages:false,retries:0,sdk_version:"0.0.0",transport:"synthetic-transport",gate:"MEAN_REVIEW_LIVE_ENABLED",test_only:false});
+  const scopedPreview=(extra={})=>({...previewData("<b>mean.py payload</b>"),scope:scopeIdentity(),scope_sha256:SCOPE_SHA,scope_current:true,live_enabled:true,limits:{max_turns:1,max_budget_usd:"0.05",timeout_seconds:90},...extra});
+  const scopedJob=(id,status="DRAFT",extra={})=>job(id,status,{mode:"sdk",profile:"mean-review-profile",scope_sha256:SCOPE_SHA,...extra});
+  const scopedState=jobs=>({...state(jobs),review_scope:{mode:"sdk-mean-review",repository:"tiny-shop",question:"review",files:["mean.py"],scope_sha256:SCOPE_SHA,live_enabled:false}});
+  const bootScoped=async(jobs=[])=>{const page=load();page.calls[0].respond(scopedState(jobs));await flush();return page;};
+  const consentBoxes=panel=>{const [first,second]=panel.children.slice(-3);first.children[0].checked=second.children[0].checked=true;first.children[0].listeners.change();second.children[0].listeners.change();return findButtons(panel,"Start approved SDK analysis")[0];};
+  await step("mean mode shows the fixed mean.py selection and leaves the legacy selection intact",async()=>{
+    const page=await bootScoped([]);
+    page.byId("mode").value="sdk-mean-review";page.byId("mode").listeners.change();
+    assert.equal(page.byId("question").value,"review");
+    assert.equal(page.byId("scope-selection").hidden,false);
+    assert.match(page.byId("scope-selection").textContent,/mean\.py/);
+    assert.equal(page.byId("approved-files").hidden,true);
+    const done=page.byId("prepare").click();
+    assert.deepEqual(page.posts()[0].body,{repository:"tiny-shop",question:"review",mode:"sdk-mean-review",files:["mean.py"]});
+    page.posts()[0].respond({});await flush();
+    page.calls[2].respond(scopedState([]));await done;
+    page.byId("mode").value="sdk";page.byId("mode").listeners.change();
+    assert.equal(page.byId("scope-selection").hidden,true);
+    assert.equal(page.byId("approved-files").hidden,false);
+    const legacy=page.byId("prepare").click(); // the Tiny Shop choices apply again, unchanged
+    assert.deepEqual(page.posts()[1].body.files,["README.md","inventory.py"]);
+    assert.equal(page.posts()[1].body.mode,"sdk");
+    page.posts()[1].respond({});await flush();
+    page.calls[4].respond(scopedState([]));await legacy;
+  });
+  await step("the scoped preview shows the fingerprint and every bound as text with the SDK-threshold disclaimer",async()=>{
+    const page=await bootScoped([scopedJob("m")]);
+    findButtons(page.byId("jobs"),"Review SDK payload")[0].click();
+    page.calls[1].respond(scopedPreview());await flush();
+    const text=texts(page.byId("sdk-preview"));
+    assert.ok(text.includes(SCOPE_SHA));
+    for(const name of BOUND_NAMES) assert.ok(text.includes(`bound: ${name}`),`missing bound ${name}`);
+    for(const value of ["1000","1022","0.05"]) assert.ok(text.includes(value),value);
+    for(const part of ["mean.py","claude-haiku-5-5","1272","MEAN_REVIEW_LIVE_ENABLED"]) assert.ok(text.includes(part),part);
+    assert.match(text,/SDK threshold, not a billing, invoice or quota cap/);
+    assert.match(text,/accounting allowance, not an enforced timer/);
+    assert.match(text,/hidden provider retries are not observable/);
+    assert.ok(text.includes("<b>mean.py payload</b>")); // the payload is text, never markup
+  });
+  await step("a closed scope gate keeps the scoped start disabled and sends nothing",async()=>{
+    const page=await bootScoped([scopedJob("m")]);
+    findButtons(page.byId("jobs"),"Review SDK payload")[0].click();
+    page.calls[1].respond(scopedPreview({live_enabled:false}));await flush();
+    const panel=page.byId("sdk-preview"),start=consentBoxes(panel);
+    assert.match(texts(panel),/Live gate closed/);
+    assert.equal(start.disabled,true);
+    await start.click().catch(()=>{});
+    assert.equal(page.posts().length,0);
+  });
+  await step("an open scoped start sends the exact scope once, and a double click is one request",async()=>{
+    const page=await bootScoped([scopedJob("m")]);
+    findButtons(page.byId("jobs"),"Review SDK payload")[0].click();
+    page.calls[1].respond(scopedPreview());await flush();
+    const panel=page.byId("sdk-preview"),start=consentBoxes(panel);
+    assert.equal(start.disabled,false);
+    const one=start.click(),two=start.click();
+    assert.equal(page.posts().length,1);
+    assert.deepEqual(page.posts()[0].body,{allow_live:true,allow_existing_login:true,snapshot_sha256:"snap",scope_sha256:SCOPE_SHA});
+    assert.equal(panel.hidden,true);
+    page.posts()[0].respond({error:"Analysis operation rejected; refresh state"},409);await flush();
+    page.calls[3].respond(scopedState([scopedJob("m")]));await Promise.all([one,two]);
+    await start.click().catch(()=>{});
+    assert.equal(page.posts().length,1); // consent was consumed even though the request failed
+  });
+  await step("a changed or stale scope rejects the consent before any request",async()=>{
+    for(const how of ["server-not-current","job-scope-changed"]){
+      const page=await bootScoped([scopedJob("m")]);
+      findButtons(page.byId("jobs"),"Review SDK payload")[0].click();
+      page.calls[1].respond(scopedPreview(how==="server-not-current"?{scope_current:false}:{}));await flush();
+      const panel=page.byId("sdk-preview"),start=consentBoxes(panel);
+      if(how==="job-scope-changed"){
+        page.context.next=scopedState([scopedJob("m","DRAFT",{scope_sha256:"e".repeat(64)})]);
+        vm.runInContext("apply(next)",page.context);
+        assert.equal(panel.hidden,true);
+      }
+      await start.click().catch(()=>{});
+      assert.equal(page.posts().length,0);
+      assert.match(page.byId("error").textContent,/out of date/);
+    }
+  });
+  await step("a late scoped preview response cannot replace a newer selection",async()=>{
+    const page=await bootScoped([scopedJob("a"),scopedJob("b")]);
+    const buttons=findButtons(page.byId("jobs"),"Review SDK payload"); // b, a
+    buttons[1].click();buttons[0].click();
+    const [forA,forB]=page.calls.slice(1);
+    forB.respond(scopedPreview({scope_sha256:"b".repeat(64),query_text:"B-scoped"}));await flush();
+    forA.respond(scopedPreview({scope_sha256:"a".repeat(64),query_text:"A-scoped"}));await flush();
+    const text=texts(page.byId("sdk-preview"));
+    assert.ok(text.includes("B-scoped"));assert.ok(!text.includes("A-scoped"));
+    assert.equal(page.byId("sdk-preview").scrolled,1);
+  });
   console.log(`Analysis UI races: ${count} scenarios PASS`);
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

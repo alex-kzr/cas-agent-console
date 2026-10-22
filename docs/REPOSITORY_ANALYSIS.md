@@ -101,6 +101,36 @@ Stop is described as a local request, not proof of provider cancellation.
 DOM regression for these: `node tests/analysis_races.test.cjs` (delayed fetches released
 by the test, no timers).
 
+## Fixed mean.py review scope (CURRENT, 2026-10-22; gate closed, NOT_READY)
+
+The mode **Synthetic mean.py review (own gate, closed)** prepares exactly one fixed synthetic
+file, `mean.py` (122 bytes), and the review question. Selecting the mode shows
+"Mean review selection (fixed): mean.py" and hides the Tiny Shop file list, whose checkbox
+state is untouched and applies again for the other modes. Legacy modes are unchanged.
+
+Review SDK payload for this scope lists, as plain text (`textContent`), the profile id,
+model, selected file with bytes and hash, instruction/query hashes, tools (none), retries (0),
+SDK version, transport, gate name, the full fingerprint, whether the scope is still current,
+and **every** bound the profile defines (one `bound: <name>` row each, including
+`budget_usd`, all time, count and byte bounds). It states that the USD value is an SDK
+threshold and not a billing, invoice or quota cap, that one logical query is made while
+hidden provider retries are not observable, that `finalize_seconds` is an accounting
+allowance rather than an enforced timer, that the watchdog is cooperative, and that
+provider-side cancellation and deletion are not claimed.
+
+Start stays disabled while the scope gate is closed, and a crafted click is refused locally
+("The live gate is closed. Nothing was sent."). Consent is bound to the preview, job, profile,
+snapshot and scope fingerprint; a server `scope_current: false` or a changed job scope hides
+the preview and rejects the start before any request. Consent is single use even when the
+request fails, and a double click sends one request. A late preview answer never replaces a
+newer selection.
+
+Regression (written, **NOT_RUN** until the coordinator records evidence):
+`node tests/analysis_races.test.cjs` (scoped scenarios at the end) and
+`tests/test_repository_analysis_http.py::test_mean_scope_creation_preview_and_closed_gate_over_http`
+(synthetic data and the closed gate only; no model, auth or native process). Fresh builds and
+browser acceptance are also NOT_RUN. Details: the runtime `docs/REVIEW_READINESS.md`.
+
 Live/native/auth behavior has not been exercised for this path. The single future
 scope and fresh-session review handoff live in the umbrella
 `docs/review/REPOSITORY_ANALYSIS_SDK_2026-10-17.md`. Keep the gate closed pending that

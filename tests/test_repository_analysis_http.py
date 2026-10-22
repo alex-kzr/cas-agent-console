@@ -11,6 +11,7 @@ from pathlib import Path
 
 from agent_console.repository_analysis import create_analysis_server
 from agent_console.server import create_server
+
 from agent_runtime.tasks.repository_analysis import AnalysisControl
 
 
@@ -103,6 +104,57 @@ class AnalysisHTTPTests(unittest.TestCase):
                 )[0],
                 409,
             )
+
+    def test_mean_scope_creation_preview_and_closed_gate_over_http(self):
+        status, body, _ = self.request("GET", "/api/analysis")
+        advertised = json.loads(body)["review_scope"]
+        self.assertEqual(advertised["files"], ["mean.py"])
+        self.assertFalse(advertised["live_enabled"])
+        scoped = {
+            "repository": advertised["repository"],
+            "question": advertised["question"],
+            "mode": advertised["mode"],
+            "files": advertised["files"],
+        }
+        for wrong in (
+            scoped | {"files": ["mean.py", "mean.py"]},
+            scoped | {"files": ["README.md"]},
+            scoped | {"question": "overview"},
+        ):
+            self.assertEqual(
+                self.request("POST", "/api/analysis/jobs", wrong, self.headers)[0], 409
+            )
+        self.assertEqual(self.control.list(), [])
+        status, body, _ = self.request("POST", "/api/analysis/jobs", scoped, self.headers)
+        self.assertEqual(status, 200)
+        job = json.loads(body)
+        path = "/api/analysis/jobs/" + job["job_id"]
+        status, body, _ = self.request("GET", path + "/preview")
+        self.assertEqual(status, 200)
+        preview = json.loads(body)
+        self.assertEqual(preview["scope_sha256"], advertised["scope_sha256"])
+        self.assertTrue(preview["scope_current"])
+        self.assertFalse(preview["live_enabled"])
+        self.assertEqual([s["path"] for s in preview["payload"]["snapshots"]], ["mean.py"])
+        self.assertEqual(preview["scope"]["source"]["path"], "mean.py")
+        self.assertEqual(preview["scope"]["tools"], [])
+        self.assertEqual(preview["scope"]["bounds"]["logical_queries"], 1)
+        self.assertEqual(preview["tools"], [])
+        consent = {
+            "allow_live": True,
+            "allow_existing_login": True,
+            "snapshot_sha256": preview["snapshot_sha256"],
+            "scope_sha256": preview["scope_sha256"],
+        }
+        # The closed scope gate refuses even exact fresh consent; a changed scope is refused too.
+        for sent in (
+            consent,
+            consent | {"scope_sha256": "0" * 64},
+            consent | {"allow_live": False},
+        ):
+            self.assertEqual(self.request("POST", path + "/start", sent, self.headers)[0], 403)
+        self.assertFalse((self.control.root / "runs").exists())
+        self.assertEqual(self.control.load(job["job_id"])["status"], "DRAFT")
 
     def test_review_question_selects_versioned_findings_and_needs_sdk_mode(self):
         status, body, _ = self.request("GET", "/api/analysis")
