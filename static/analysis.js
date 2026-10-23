@@ -4,7 +4,7 @@ const TERMINAL = new Set(["COMPLETED","FAILED","CANCELLED","INTERRUPTED"]);
 const ACTIVE = new Set(["STARTING","RUNNING","STOPPING"]);
 // selectSeq is one generation for report AND preview selections: the newest selection of either kind wins.
 // unreconciled: a mutation's outcome is unknown and no state read has succeeded since; mutations stay locked.
-let csrf = "", busy = false, unreconciled = false, pendingPoll = null, refreshSeq = 0, selectSeq = 0, previewJob = null, reviewScope = null;
+let csrf = "", busy = false, unreconciled = false, pendingPoll = null, refreshSeq = 0, selectSeq = 0, previewJob = null, reviewScope = null, vsScope = null;
 const fileSelections=[], known=new Map();
 const element = (tag, text, className) => { const el = document.createElement(tag); if (text != null) el.textContent = text; if(className) el.className=className; return el; };
 async function request(path, value) {
@@ -82,7 +82,9 @@ function renderScope(panel,data) {
   row("fingerprint (sha256)",data.scope_sha256);
   row("scope still current",data.scope_current!==false);
   row("profile",scope.profile_id);row("model",scope.model);row("repository",scope.repository);row("question",scope.question);
-  row("selected file",`${source.path} / ${source.bytes} bytes / sha256 ${source.sha256}`);
+  if(scope.sources) scope.sources.forEach((item,index)=>row(`selected file ${index+1}`,`${item.path} / ${item.bytes} bytes / sha256 ${item.sha256}`));
+  else row("selected file",`${source.path} / ${source.bytes} bytes / sha256 ${source.sha256}`);
+  if(scope.root) row("source root identity",scope.root);
   row("instruction sha256",scope.instruction_sha256);row("query bytes",scope.query_bytes);row("query sha256",scope.query_sha256);
   row("tools",scope.tools.length ? scope.tools : "none");row("partial messages",scope.partial_messages);row("automatic retries",scope.retries);
   row("SDK version",scope.sdk_version);row("transport",scope.transport);row("gate",scope.gate);row("test only",scope.test_only);
@@ -103,7 +105,8 @@ async function showPreview(jobId) {
   if(data.scope) renderScope(panel,data);
   panel.append(element("pre",data.query_text));
   const live=element("input"),login=element("input");live.type=login.type="checkbox";live.checked=login.checked=false;
-  const first=element("label","Authorize this exact synthetic payload and model request ");first.append(live);
+  const real=Boolean(data.scope && data.scope.sources && !data.scope.test_only);
+  const first=element("label",real ? "Authorize sending these exact selected source files to Anthropic as one model request " : "Authorize this exact synthetic payload and model request ");first.append(live);
   const second=element("label","Authorize existing subscription login reuse for this run ");second.append(login);
   const start=button("Start approved SDK analysis",async()=>{
     if(busy) return;
@@ -121,7 +124,7 @@ async function showPreview(jobId) {
   panel.append(first,second,start);panel.scrollIntoView({block:"start",behavior:"smooth"});
 }
 function apply(data) {
-  csrf=data.csrf;reviewScope=data.review_scope||null;if(reviewScope) showSelection();
+  csrf=data.csrf;reviewScope=data.review_scope||null;vsScope=data.vs_scope||null;if(reviewScope||vsScope) showSelection();
   if(!byId("repository").options.length) {
     for(const repo of data.repositories) {const option=element("option",repo.label);option.value=repo.id;byId("repository").append(option);}
     for(const [key,label] of Object.entries(data.questions)) {const option=element("option",label);option.value=key;byId("question").append(option);}
@@ -182,24 +185,35 @@ async function stop(jobId) {
   if(job && job.status==="COMPLETED") byId("status").textContent="Run completed; the stop had no effect.";
 }
 // The fixed synthetic scope has one question and one file; selecting it overrides the sample choices.
-const SCOPE_MODE="sdk-mean-review";
+const SCOPE_MODE="sdk-mean-review", VS_MODE="sdk-vs-api-review";
+const isVs=()=>byId("mode").value===VS_MODE && vsScope;
 function syncMode() {
-  const scoped=byId("mode").value===SCOPE_MODE;
+  const scoped=byId("mode").value===SCOPE_MODE, vs=isVs();
   if(scoped && reviewScope) byId("question").value=reviewScope.question;
+  if(vs) byId("question").value=vsScope.question;
   const review=byId("question").value==="review";
-  if(review && !scoped) byId("mode").value="sdk";
+  if(review && !scoped && !vs) byId("mode").value="sdk";
   for(const option of byId("mode").options || []) if(option.value==="offline") option.disabled=review;
   showSelection();
 }
 // Mean mode sends exactly the one fixed file; the Tiny Shop checkboxes keep their own state and do not apply to it.
 function showSelection() {
-  const scoped=byId("mode").value===SCOPE_MODE && reviewScope, note=byId("scope-selection");
-  byId("approved-files").hidden=Boolean(scoped);
+  const scoped=byId("mode").value===SCOPE_MODE && reviewScope, vs=isVs(), note=byId("scope-selection"), vsNote=byId("vs-scope-note");
+  byId("approved-files").hidden=Boolean(scoped||vs);
   note.hidden=!scoped;
   note.textContent=scoped ? `Mean review selection (fixed): ${reviewScope.files.join(", ")}. The Tiny Shop file choices below do not apply to this mode.` : "";
+  // Metadata only (names, bytes, hashes): the page never receives or shows VS source from this endpoint.
+  vsNote.hidden=!vs;
+  vsNote.textContent=vs ? `VS API review selection (fixed, in this order): ${vsScope.manifest.map(item=>`${item.path} (${item.bytes} bytes, sha256 ${item.sha256})`).join("; ")}. Fingerprint ${vsScope.scope_sha256}. ${vsScope.message}` : "";
 }
 byId("question").addEventListener("change",syncMode);
 byId("mode").addEventListener("change",syncMode);
-byId("prepare").addEventListener("click",()=>{syncMode();const scoped=byId("mode").value===SCOPE_MODE&&reviewScope;return mutate("/api/analysis/jobs",{repository:scoped?reviewScope.repository:byId("repository").value,question:byId("question").value,mode:byId("mode").value,files:scoped?reviewScope.files:fileSelections.filter(item=>item.input.checked).map(item=>item.name)}).catch(failure);});
+byId("prepare").addEventListener("click",()=>{syncMode();
+  if(byId("mode").value===VS_MODE){
+    // Closed staging is decided locally from metadata: no request, so nothing is read or staged.
+    if(!vsScope||vsScope.source_staging!=="open") return Promise.resolve().then(()=>{throw new Error(vsScope?vsScope.message:"VS API review is unavailable.");}).catch(failure);
+    return mutate("/api/analysis/jobs",{repository:vsScope.repository,question:vsScope.question,mode:VS_MODE,files:vsScope.files}).catch(failure);
+  }
+  const scoped=byId("mode").value===SCOPE_MODE&&reviewScope;return mutate("/api/analysis/jobs",{repository:scoped?reviewScope.repository:byId("repository").value,question:byId("question").value,mode:byId("mode").value,files:scoped?reviewScope.files:fileSelections.filter(item=>item.input.checked).map(item=>item.name)}).catch(failure);});
 byId("refresh").addEventListener("click",()=>refresh().catch(failure));
 refresh().catch(failure);

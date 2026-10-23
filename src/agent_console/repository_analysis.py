@@ -82,6 +82,12 @@ class AnalysisHandler(Handler):
                     }
                 except ValueError:
                     scope = None  # An invalid profile only removes this scope, never the page.
+                try:
+                    # Metadata only: names, bytes, hashes and the closed-staging message. It never
+                    # reads, copies or stages a source file at any gate state.
+                    vs_scope = self.analysis.vs_scope()
+                except ValueError:
+                    vs_scope = None
                 return self.json(
                     {
                         "csrf": self.token,
@@ -90,6 +96,7 @@ class AnalysisHandler(Handler):
                         "sdk_live_enabled": LIVE_ANALYSIS_ENABLED,
                         # One fixed, separately gated synthetic scope; no generic profile list.
                         "review_scope": scope,
+                        "vs_scope": vs_scope,
                         "repositories": [
                             {
                                 "id": "tiny-shop",
@@ -113,9 +120,9 @@ class AnalysisHandler(Handler):
                         "application/zip",
                         attachment="repository-analysis.zip",
                     )
-            if len(parts) == 6 and parts[:3] == ["api", "analysis", "jobs"] and parts[4] == "files":
+            if len(parts) >= 6 and parts[:3] == ["api", "analysis", "jobs"] and parts[4] == "files":
                 source = self.analysis.sources(parts[3])
-                name = parts[5]
+                name = "/".join(parts[5:])  # fixed names may have one directory level
                 if name not in source:
                     raise ValueError("Only approved snapshot files are available")
                 lines = "\n".join(
@@ -152,7 +159,17 @@ class AnalysisHandler(Handler):
                 {"repository", "question"},
                 {"repository", "question", "files", "mode"},
             ):
-                return self.json(self.analysis.create(**value))
+                try:
+                    return self.json(self.analysis.create(**value))
+                except PermissionError:
+                    from agent_runtime.tasks import vs_review_profile
+
+                    if value.get("mode") != vs_review_profile.SCOPE_MODE:
+                        raise
+                    # A closed gate is a normal state here: nothing was read, staged or recorded.
+                    return self.json(
+                        {"error": "VS API review source staging is closed; no file was read"}, 409
+                    )
             parts = self.path.strip("/").split("/")
             if len(parts) == 5 and parts[:3] == ["api", "analysis", "jobs"]:
                 if parts[4] == "start" and set(value) in (

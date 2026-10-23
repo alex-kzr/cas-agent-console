@@ -105,6 +105,100 @@ class AnalysisHTTPTests(unittest.TestCase):
                 409,
             )
 
+    def serve(self, control):
+        server = create_analysis_server(control, 0)
+        thread = threading.Thread(target=server.serve_forever)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(thread.join)
+        self.addCleanup(server.shutdown)
+        return server
+
+    def test_vs_scope_is_metadata_only_and_staging_stays_closed_over_http(self):
+        from unittest.mock import patch
+
+        from agent_runtime.tasks import vs_review_profile as vs
+
+        boom = AssertionError("a closed gate must not read or stage any VS source")
+        with (
+            patch.object(vs, "read_manifest_files", side_effect=boom),
+            patch.object(vs, "stage", side_effect=boom),
+        ):
+            status, body, _ = self.request("GET", "/api/analysis")
+            self.assertEqual(status, 200)
+            scope = json.loads(body)["vs_scope"]
+            self.assertEqual(scope["mode"], "sdk-vs-api-review")
+            self.assertEqual(scope["repository"], "vacancy-search-frontend")
+            self.assertEqual(scope["files"], ["src/api.ts", "src/api.test.ts"])
+            self.assertEqual(
+                [(m["path"], m["bytes"]) for m in scope["manifest"]],
+                [("src/api.ts", 3550), ("src/api.test.ts", 6932)],
+            )
+            self.assertEqual(scope["source_staging"], "closed")
+            self.assertFalse(scope["live_enabled"])
+            self.assertEqual(scope["scope_sha256"], vs.canonical().fingerprint)
+            self.assertNotIn("content", json.dumps(scope))
+            fixed = {
+                "repository": scope["repository"],
+                "question": scope["question"],
+                "mode": scope["mode"],
+                "files": scope["files"],
+            }
+            status, body, _ = self.request("POST", "/api/analysis/jobs", fixed, self.headers)
+            self.assertEqual(status, 409)
+            self.assertIn("staging is closed", json.loads(body)["error"])
+            # No override field of any kind reaches the controller.
+            for extra in ({"test_only": True}, {"contents": {}}, {"root": "C:\\other"}):
+                status, _, _ = self.request(
+                    "POST", "/api/analysis/jobs", fixed | extra, self.headers
+                )
+                self.assertEqual(status, 409)
+        self.assertEqual(self.control.list(), [])
+        self.assertFalse(any(p.is_dir() for p in self.control.directory.iterdir()))
+
+    def test_vs_test_only_snapshot_preview_nested_file_route_and_closed_start(self):
+        from agent_runtime.tasks import vs_review_profile as vs
+
+        api, spec = vs.NAMES
+        profile = vs.canonical().test_variant(
+            {api: "export const fixture = 1;\r\nexport const other = 2;\n", spec: "// unrelated\n"}
+        )
+        control = AnalysisControl(Path(self.temp.name) / "vs-data", vs_profile=profile)
+        self.addCleanup(control.close)
+        job = control.create(vs.REPOSITORY, "review", list(vs.NAMES), vs.SCOPE_MODE)
+        server = self.serve(control)
+        self.server, original = server, self.server
+        try:
+            path = "/api/analysis/jobs/" + job["job_id"]
+            status, body, _ = self.request("GET", path + "/preview")
+            self.assertEqual(status, 200)
+            preview = json.loads(body)
+            self.assertFalse(preview["live_enabled"])
+            self.assertEqual([s["path"] for s in preview["payload"]["snapshots"]], [api, spec])
+            self.assertEqual([s["path"] for s in preview["scope"]["sources"]], [api, spec])
+            self.assertEqual(preview["scope_sha256"], profile.fingerprint)
+            status, body, _ = self.request("GET", path + "/files/src/api.ts")
+            self.assertEqual(status, 200)
+            self.assertIn(b"fixture", body)
+            status, body, _ = self.request("GET", path + "/files/src%2Fapi.test.ts")
+            self.assertEqual(status, 200)
+            for name in ("src/other.ts", "api.ts", "src/", "../src/api.ts"):
+                self.assertEqual(self.request("GET", path + "/files/" + name)[0], 409, name)
+            consent = {
+                "allow_live": True,
+                "allow_existing_login": True,
+                "snapshot_sha256": preview["snapshot_sha256"],
+                "scope_sha256": preview["scope_sha256"],
+            }
+            headers = {**self.headers, "Origin": "http://" + f"127.0.0.1:{server.server_port}"}
+            status, body, _ = self.request("GET", "/api/analysis")
+            headers["X-CAS-CSRF"] = json.loads(body)["csrf"]
+            self.assertEqual(self.request("POST", path + "/start", consent, headers)[0], 403)
+            self.assertFalse((control.root / "runs").exists())
+            self.assertEqual(control.load(job["job_id"])["status"], "DRAFT")
+        finally:
+            self.server = original
+
     def test_mean_scope_creation_preview_and_closed_gate_over_http(self):
         status, body, _ = self.request("GET", "/api/analysis")
         advertised = json.loads(body)["review_scope"]

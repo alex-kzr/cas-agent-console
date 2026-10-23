@@ -459,6 +459,54 @@ async function main() {
     assert.ok(text.includes("B-scoped"));assert.ok(!text.includes("A-scoped"));
     assert.equal(page.byId("sdk-preview").scrolled,1);
   });
+  // -- fixed two-file VS API scope: invented metadata and mock responses only ---------------------
+  const VS_SHA="f".repeat(64);
+  const vsManifest=[{path:"src/api.ts",bytes:11,sha256:"1".repeat(64)},{path:"src/api.test.ts",bytes:22,sha256:"2".repeat(64)}];
+  const vsScope=(extra={})=>({mode:"sdk-vs-api-review",repository:"vacancy-search-frontend",question:"review",files:["src/api.ts","src/api.test.ts"],manifest:vsManifest,scope_sha256:VS_SHA,live_enabled:false,source_staging:"closed",message:"Source staging is closed: synthetic message.",...extra});
+  const vsState=(jobs,extra)=>({...state(jobs),vs_scope:vsScope(extra)});
+  const bootVs=async(jobs=[],extra)=>{const page=load();page.calls[0].respond(vsState(jobs,extra));await flush();return page;};
+  const vsJob=(id,status="DRAFT")=>job(id,status,{mode:"sdk",profile:"repository-analysis-vs-api-v1",scope_sha256:VS_SHA});
+  const vsPreview=(extra={})=>({...scopedPreview({scope_sha256:VS_SHA}),scope:{...scopeIdentity(),repository:"vacancy-search-frontend",root:"synthetic-root",sources:vsManifest},...extra});
+  await step("VS mode lists exact metadata and a closed staging gate sends no request",async()=>{
+    const page=await bootVs([]);
+    page.byId("mode").value="sdk-vs-api-review";page.byId("mode").listeners.change();
+    assert.equal(page.byId("question").value,"review");
+    const note=page.byId("vs-scope-note");
+    assert.equal(note.hidden,false);
+    for(const part of ["src/api.ts","src/api.test.ts","11 bytes","22 bytes",VS_SHA,"Source staging is closed"]) assert.ok(note.textContent.includes(part),part);
+    assert.ok(note.textContent.indexOf("src/api.ts")<note.textContent.indexOf("src/api.test.ts")); // fixed order
+    assert.equal(page.byId("approved-files").hidden,true);
+    await page.byId("prepare").click();
+    assert.equal(page.posts().length,0);
+    assert.equal(page.calls.length,1); // no hidden read or retry
+    assert.match(page.byId("error").textContent,/Source staging is closed/);
+  });
+  await step("an open VS staging state sends only the fixed scope and Tiny Shop selection is untouched",async()=>{
+    const page=await bootVs([],{source_staging:"open",live_enabled:true});
+    page.byId("mode").value="sdk-vs-api-review";page.byId("mode").listeners.change();
+    const done=page.byId("prepare").click();
+    assert.deepEqual(page.posts()[0].body,{repository:"vacancy-search-frontend",question:"review",mode:"sdk-vs-api-review",files:["src/api.ts","src/api.test.ts"]});
+    page.posts()[0].respond({});await flush();
+    page.calls[2].respond(vsState([]));await done;
+    page.byId("mode").value="sdk";page.byId("mode").listeners.change();
+    assert.equal(page.byId("vs-scope-note").hidden,true);
+    assert.equal(page.byId("approved-files").hidden,false);
+  });
+  await step("the VS preview lists both files and a changed fingerprint rejects consent before any request",async()=>{
+    const page=await bootVs([vsJob("v")]);
+    findButtons(page.byId("jobs"),"Review SDK payload")[0].click();
+    page.calls[1].respond(vsPreview());await flush();
+    const panel=page.byId("sdk-preview"),text=texts(panel);
+    for(const part of ["src/api.ts / 11 bytes","src/api.test.ts / 22 bytes","synthetic-root",VS_SHA]) assert.ok(text.includes(part),part);
+    assert.match(text,/selected source files to Anthropic/);
+    const start=consentBoxes(panel);
+    page.context.next=vsState([{...vsJob("v"),scope_sha256:"e".repeat(64)}]);
+    vm.runInContext("apply(next)",page.context);
+    assert.equal(panel.hidden,true);
+    await start.click().catch(()=>{});
+    assert.equal(page.posts().length,0);
+    assert.match(page.byId("error").textContent,/out of date/);
+  });
   console.log(`Analysis UI races: ${count} scenarios PASS`);
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

@@ -135,3 +135,30 @@ Live/native/auth behavior has not been exercised for this path. The single futur
 scope and fresh-session review handoff live in the umbrella
 `docs/review/REPOSITORY_ANALYSIS_SDK_2026-10-17.md`. Keep the gate closed pending that
 review and separate explicit approval. No new framework/dependency is introduced.
+
+## Fixed two-file VS API review scope (VS-01, 2026-10-22; partial offline verification, NOT_READY_FOR_LIVE)
+
+Historical verification clarification (prepared 2026-10-23; no new test run): the authorized correction recorded on 2026-10-22 reports 367 runtime tests: **365 PASS + 2 native SKIP**, zero failures/errors and strict exit 1; HTTP **21/21 PASS**, Ruff lint/format PASS. Earlier NOT_RUN/unverified and lint-failure statements below are preserved historical checkpoints, not the current verification status. Source: umbrella `docs/review/VS01_OFFLINE_IMPLEMENTATION_2026-10-22.md` and `docs/review/evidence/vs01-offline-2026-10-22/authorized-correction.json`. The 2026-10-23 read-only component review matched all 14 source/test hashes to that receipt; this does not rerun the tests or establish native path safety. Source staging and live gates remain closed; **NOT_READY_FOR_LIVE**.
+
+The mode **VS frontend API review (two fixed files, source staging closed)** is a separate scope
+from the mean review: own profile, fingerprint, gate and one-time slot. `GET /api/analysis` adds
+`vs_scope`: fixed names in order (`src/api.ts`, `src/api.test.ts`), exact bytes and SHA-256, the
+repository token, the fingerprint, the gate state and a staging message. It is metadata only; the
+endpoint never reads, copies or stages a VS file at any gate state.
+
+With the gate closed, selecting the mode shows that metadata and **Prepare** refuses locally
+(no request). A crafted create request is answered 409 "source staging is closed" by the backend,
+which reads nothing and records nothing. Extra fields (`test_only`, contents, root) are not part
+of the accepted create body and are rejected like any unknown field; the controller's test-only
+variants are constructor arguments of trusted Python code only.
+
+When a future explicit source approval opens the gate, a draft verifies root containment,
+regular non-linked files, sizes and hashes before staging, then keeps the exact bytes (mixed
+CRLF/LF) under `files/src/...`. The preview lists both files with bytes and hashes, the root
+identity, the fingerprint and every bound as text, and its consent label says the exact selected
+source files go to Anthropic. Consent binds the job, profile, snapshot and fingerprint, is single
+use, and a changed state hides the preview. The snapshot viewer accepts the nested approved names
+`src/api.ts` and `src/api.test.ts` only. Reopen and export read the saved snapshot, never the
+source root, and issue no query.
+
+Regression evidence (historical, not rerun for this commit preparation): HTTP **21/21 PASS** in the 2026-10-22 authorized correction; the unchanged Node source has the earlier **30 race scenarios, 8 DOM assertions, 7 usage assertions and preview/consent PASS** recorded in umbrella `docs/review/evidence/vs01-offline-2026-10-22/verification.json`. Node was not rerun in the narrow correction; these counts are separate and must not be added to the runtime total. The two VS HTTP methods use invented text only, not real VS source.
