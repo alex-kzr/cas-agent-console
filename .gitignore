@@ -12,3 +12,6 @@ __pycache__/
 /data/
 /dist/
 *.egg-info/
+/node_modules/
+/test-results/
+/playwright-report/

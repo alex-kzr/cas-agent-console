@@ -24,7 +24,7 @@ class DataError(ValueError):
 
 
 def asset_bytes(name: str) -> bytes:
-    if name not in {"index.html", "styles.css", "app.js", "tasks.js"}:
+    if name not in {"index.html", "styles.css", "app.js", "tasks.js", "working-sessions.js"}:
         raise DataError("Unknown asset", 404)
     packaged = files("agent_console").joinpath("static", name)
     if packaged.is_file():
@@ -68,7 +68,7 @@ class Store:
                 or re.fullmatch(
                     r"(?:CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9¹²³]|LPT[1-9¹²³])",
                     segment.split(".", 1)[0].rstrip(" "),
-                    re.I,
+                    re.IGNORECASE,
                 )
             ):
                 raise DataError("Device or ambiguous data reference", 400)
@@ -241,9 +241,12 @@ class Store:
 
 
 class Handler(BaseHTTPRequestHandler):
-    def __init__(self, *args, store: Store, control=None, **kwargs):
+    def __init__(
+        self, *args, store: Store, control=None, working_sessions=None, **kwargs
+    ):
         self.store = store
         self.control = control
+        self.working_sessions = working_sessions
         super().__init__(*args, **kwargs)
 
     def log_message(self, *_):
@@ -298,8 +301,15 @@ class Handler(BaseHTTPRequestHandler):
                     raise DataError("Pagination outside allowed range", 400)
                 return result
 
-            if path == '/api/control':
-                self.json(self.control.info() if self.control else {'enabled': False})
+            if path.startswith("/api/working-sessions"):
+                if self.working_sessions is None:
+                    if path != "/api/working-sessions":
+                        raise DataError("Working sessions disabled", 403)
+                    self.json({"enabled": False})
+                else:
+                    self.json(self.working_sessions.get(path))
+            elif path == "/api/control":
+                self.json(self.control.info() if self.control else {"enabled": False})
             elif path == "/api/runs":
                 self.json(
                     self.store.runs(
@@ -331,13 +341,21 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 else:
                     raise DataError("Unknown endpoint", 404)
-            elif path in {"/", "/index.html", "/styles.css", "/app.js", "/tasks.js"}:
+            elif path in {
+                "/",
+                "/index.html",
+                "/styles.css",
+                "/app.js",
+                "/tasks.js",
+                "/working-sessions.js",
+            }:
                 name = "index.html" if path == "/" else path[1:]
                 media_type = {
                     "index.html": "text/html",
                     "styles.css": "text/css",
                     "app.js": "text/javascript",
                     "tasks.js": "text/javascript",
+                    "working-sessions.js": "text/javascript",
                 }[name]
                 self.respond(asset_bytes(name), media_type + "; charset=utf-8")
             else:
@@ -347,42 +365,91 @@ class Handler(BaseHTTPRequestHandler):
         except (OSError, ValueError):
             self.json({"error": "Unavailable or corrupt local data"}, 422)
 
-
     def do_POST(self):
         try:
+            if self.path.startswith("/api/working-sessions"):
+                if self.working_sessions is None:
+                    raise DataError("Working sessions disabled", 403)
+                self.json(self.working_sessions.post(self), 200)
+                return
             if self.control is None:
-                raise DataError('Task control is disabled', 403)
+                raise DataError("Task control is disabled", 403)
             self.json(self.control.post(self), 200)
         except DataError as error:
-            self.json({'error': str(error)}, error.status)
+            self.json({"error": str(error)}, error.status)
         except ValueError as error:
-            self.json({'error': str(error)[:256]}, 409)
+            self.json({"error": str(error)[:256]}, 409)
         except (OSError, RuntimeError, KeyError):
-            self.json({'error': 'Task operation rejected; refresh state and check consent/eligibility'}, 409)
+            self.json(
+                {
+                    "error": "Task operation rejected; refresh state and check consent/eligibility"
+                },
+                409,
+            )
 
 
-def create_server(data_dir: Path, host="127.0.0.1", port=8765, *, controller=None):
+def create_server(
+    data_dir: Path,
+    host="127.0.0.1",
+    port=8765,
+    *,
+    controller=None,
+    working_sessions=None,
+):
     if host != "127.0.0.1" or not 0 <= port <= 65535:
         raise ValueError("Console only supports 127.0.0.1")
+    if controller is not None and working_sessions is not None:
+        raise ValueError("Choose one console control mode")
     from agent_console.control import ControlBridge
+
     bridge = ControlBridge(controller) if controller is not None else None
-    return ThreadingHTTPServer((host, port), partial(Handler, store=Store(data_dir), control=bridge))
+    from agent_console.working_sessions import WorkingSessionBridge
+
+    working = (
+        WorkingSessionBridge(working_sessions) if working_sessions is not None else None
+    )
+    return ThreadingHTTPServer(
+        (host, port),
+        partial(
+            Handler, store=Store(data_dir), control=bridge, working_sessions=working
+        ),
+    )
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="cas-console")
     parser.add_argument("--data-dir", type=Path, required=True)
+    parser.add_argument(
+        "--root", type=Path, help="CAS umbrella required for working-session commands"
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument('--enable-tasks', action='store_true',
-                        help='Enable coding-fixture task controls; requires separately installed runtime')
+    parser.add_argument(
+        "--enable-tasks",
+        action="store_true",
+        help="Enable coding-fixture task controls; requires separately installed runtime",
+    )
+    parser.add_argument(
+        "--enable-working-sessions",
+        action="store_true",
+        help="Prepare/observe finite text tasks; run/login only in private local terminal",
+    )
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
         parser.error("Port must be in 1..65535")
     controller = None
+    if args.enable_tasks and args.enable_working_sessions:
+        parser.error("Choose one console control mode")
     if args.enable_tasks:
         from agent_runtime.tasks.control import TaskControl
+
         controller = TaskControl(args.data_dir)
+    if args.enable_working_sessions:
+        from agent_runtime.tasks.working_sessions import WorkingSessions
+
+        if args.root is None:
+            parser.error("--enable-working-sessions requires --root")
+        controller = WorkingSessions(args.data_dir, root=args.root)
     try:
         return serve(args, controller)
     finally:
@@ -391,10 +458,15 @@ def main(argv=None) -> int:
 
 
 def serve(args, controller):
-    with create_server(args.data_dir, args.host, args.port, controller=controller) as server:
-        print(
-            f"CAS console: http://127.0.0.1:{server.server_port}", flush=True
-        )
+    working = getattr(args, "enable_working_sessions", False)
+    with create_server(
+        args.data_dir,
+        args.host,
+        args.port,
+        controller=None if working else controller,
+        working_sessions=controller if working else None,
+    ) as server:
+        print(f"CAS console: http://127.0.0.1:{server.server_port}", flush=True)
         try:
             server.serve_forever()
         except KeyboardInterrupt:

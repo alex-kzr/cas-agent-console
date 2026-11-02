@@ -37,3 +37,19 @@ Subsequent live result: CAS-CODING-LIVE-001 used unchanged console `d3947eb` thr
 Session/restart hardening adds local continuation eligibility/reasons, disabled unavailable actions and truthful recovery notes. GET inspection performs no native history lookup. Synthetic browser acceptance verifies this UI; native resume remains unverified. See umbrella docs/review/SESSION_RECOVERY_2026-10-14.md.
 
 The usage inspector shows recorded native/derived token comparisons with Unknown/incomplete/scope warnings. It neither reconciles historical counts nor computes billing totals. Offline DOM regression: `node tests/usage_comparison.test.cjs`; no npm dependencies are required.
+
+## Browser checks
+
+The optional browser checks use the pinned `@playwright/test` dependency and an
+already installed Google Chrome. In this repository, install the test dependency with
+`npm ci --ignore-scripts --no-audit --no-fund`. Start the local-owner CAS console as
+described in [LOCAL_OWNER_MVP](../../docs/guides/LOCAL_OWNER_MVP.md), then run
+`npm run test:browser`. The default check opens the console in a fresh headless browser
+and does not call the provider.
+
+For an explicitly intended real provider run, set `$env:CAS_BROWSER_LIVE='1'` in the
+test terminal before running the same command. That check creates one new non-secret
+task, runs it once, and verifies its result and history. The test has zero retries;
+its prompt and result remain in the selected CAS data directory. Clear the variable
+afterward with `Remove-Item Env:CAS_BROWSER_LIVE`. Do not rerun an uncertain attempt;
+inspect the session history and cleanup first.
