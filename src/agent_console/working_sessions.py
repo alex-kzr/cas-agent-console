@@ -58,10 +58,23 @@ class WorkingSessionBridge:
             return self.controller.scope(parts[2])
         raise ValueError("WORKING_SESSION_ACTION_REJECTED")
 
+    # Fixed input-validation codes raised by the store after origin/CSRF checks passed.
+    # They carry no user text, so they may be shown to explain what to change.
+    SAFE_INPUT_CODES = frozenset({
+        "BOUNDED_NONSENSITIVE_TEXT_REQUIRED",
+        "WORKING_SESSION_PLAN_FROZEN_OR_FULL",
+        "ONE_OR_TWO_DRAFT_TASKS_REQUIRED",
+    })
+
     def post(self, handler):
         try:
             return self._post(handler)
-        except (ValueError, TypeError, KeyError, RecursionError, OSError, RuntimeError):
+        except ValueError as error:
+            code = str(error) if type(error) is ValueError else ""
+            raise ValueError(
+                code if code in self.SAFE_INPUT_CODES else "WORKING_SESSION_ACTION_REJECTED"
+            ) from None
+        except (TypeError, KeyError, RecursionError, OSError, RuntimeError):
             raise ValueError("WORKING_SESSION_ACTION_REJECTED") from None
 
     def _post(self, handler):
@@ -136,11 +149,14 @@ class WorkingSessionBridge:
                     except ValueError:
                         return {'accepted': False, 'session_id': sid, 'reason': 'WORKING_SESSION_INPUT_REQUIRES_NEW_TASK'}
                     self._launches[sid] = subprocess.Popen(
-                        [sys.executable, '-B', '-m', 'agent_runtime',
+                        # -I: never import from the console's current directory or honour
+                        # PYTHON* variables; the child runs with the owner's credentials.
+                        [sys.executable, '-I', '-B', '-m', 'agent_runtime',
                          '--root', str(self.controller.root), '--data-dir', str(self.controller.data_dir),
                          'working-session', 'run', sid, '--allow-live'],
                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                         close_fds=True,
+                        cwd=str(self.controller.root),
                         creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW)
                         if sys.platform == 'win32' else 0,
                     )
@@ -150,5 +166,9 @@ class WorkingSessionBridge:
                     sid, value["plan_hash"], end=action == "end"
                 )
             raise ValueError("WORKING_SESSION_ACTION_REJECTED")
-        except (ValueError, TypeError, KeyError, RecursionError, OSError, RuntimeError):
+        except ValueError as error:
+            if type(error) is ValueError and str(error) in self.SAFE_INPUT_CODES:
+                raise
+            raise ValueError("WORKING_SESSION_ACTION_REJECTED") from None
+        except (TypeError, KeyError, RecursionError, OSError, RuntimeError):
             raise ValueError("WORKING_SESSION_ACTION_REJECTED") from None

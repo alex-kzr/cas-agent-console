@@ -3,17 +3,18 @@
 import io
 import json
 import os
-from pathlib import Path
 import tempfile
 import types
 import unittest
+from pathlib import Path
 from unittest.mock import patch
+
+from agent_runtime.providers.claude.working_backend import LEGACY_PRIVATE
+from agent_runtime.tasks.working_sessions import WorkingSessions
+from agent_runtime.telemetry.recorder import RunLock
 
 from agent_console.server import Handler
 from agent_console.working_sessions import WorkingSessionBridge
-from agent_runtime.tasks.working_sessions import WorkingSessions
-from agent_runtime.providers.claude.working_backend import LEGACY_PRIVATE
-from agent_runtime.telemetry.recorder import RunLock
 
 
 class Tests(unittest.TestCase):
@@ -85,6 +86,9 @@ class Tests(unittest.TestCase):
                 self.assertEqual(spawn.call_count, 1)
                 self.assertIn('--allow-live', spawn.call_args.args[0])
                 self.assertNotIn(str(source), spawn.call_args.args[0])
+                # Isolated child: never imports from the console's cwd; runs in the CAS root.
+                self.assertEqual(spawn.call_args.args[0][1:5], ['-I', '-B', '-m', 'agent_runtime'])
+                self.assertEqual(spawn.call_args.kwargs['cwd'], str(self.store.root))
                 with self.assertRaises(ValueError):
                     self.bridge.post(self.handler(base + '/run', {'plan_hash': d['plan_hash']}))
                 self.assertEqual(spawn.call_count, 1)
@@ -154,12 +158,14 @@ class Tests(unittest.TestCase):
             record.update(status='RUNNING', cleanup='PENDING')
             self.store.save(record)
             self.store._claim(record).write_text('synthetic consumed', encoding='utf-8')
-            with RunLock(self.store.directory / '.active'):
-                with patch('agent_console.working_sessions.subprocess.Popen') as spawn:
-                    reply = self.bridge.post(self.handler(second[0] + '/run', {'plan_hash': second[1]['plan_hash']}))
-                    self.assertEqual((reply['accepted'], reply['reason']), (False, 'WORKING_SESSION_BUSY'))
-                    spawn.assert_not_called()
-                    self.assertFalse(self.store._claim(second[1]).exists())
+            with (
+                RunLock(self.store.directory / '.active'),
+                patch('agent_console.working_sessions.subprocess.Popen') as spawn,
+            ):
+                reply = self.bridge.post(self.handler(second[0] + '/run', {'plan_hash': second[1]['plan_hash']}))
+                self.assertEqual((reply['accepted'], reply['reason']), (False, 'WORKING_SESSION_BUSY'))
+                spawn.assert_not_called()
+                self.assertFalse(self.store._claim(second[1]).exists())
 
     def test_origin_csrf_encoding_lengths_duplicates_and_private_errors(self):
         for headers in [
@@ -182,6 +188,34 @@ class Tests(unittest.TestCase):
         h.headers["Content-Length"] = str(len(raw))
         with self.assertRaises(ValueError):
             self.bridge.post(h)
+
+    def test_fixed_input_codes_are_visible_but_private_text_is_not(self):
+        d = self.bridge.post(self.handler("/api/working-sessions", {"title": "Inputs"}))
+        base = "/api/working-sessions/" + d["session_id"]
+        cases = [
+            ({"title": "Long", "prompt": "Ж" * 1100}, "BOUNDED_NONSENSITIVE_TEXT_REQUIRED"),
+            ({"title": "Key", "prompt": "password=SYNTHETIC_PRIVATE"}, "BOUNDED_NONSENSITIVE_TEXT_REQUIRED"),
+            ({"title": "Empty", "prompt": "   "}, "BOUNDED_NONSENSITIVE_TEXT_REQUIRED"),
+        ]
+        for value, code in cases:
+            with self.subTest(value["title"]), self.assertRaises(ValueError) as caught:
+                self.bridge.post(self.handler(base + "/tasks", value))
+            self.assertEqual(str(caught.exception), code)
+            self.assertNotIn("SYNTHETIC_PRIVATE", str(caught.exception))
+        with self.assertRaises(ValueError) as caught:
+            self.bridge.post(self.handler(base + "/prepare", {}))
+        self.assertEqual(str(caught.exception), "ONE_OR_TWO_DRAFT_TASKS_REQUIRED")
+        for i in range(2):
+            self.bridge.post(self.handler(base + "/tasks", {"title": str(i), "prompt": "Synthetic"}))
+        with self.assertRaises(ValueError) as caught:
+            self.bridge.post(self.handler(base + "/tasks", {"title": "3", "prompt": "Synthetic"}))
+        self.assertEqual(str(caught.exception), "WORKING_SESSION_PLAN_FROZEN_OR_FULL")
+        # Same code text from an unauthenticated request stays the generic rejection.
+        with self.assertRaises(ValueError) as caught:
+            self.bridge.post(
+                self.handler(base + "/tasks", cases[0][0], {"X-CAS-CSRF": "bad"})
+            )
+        self.assertEqual(str(caught.exception), "WORKING_SESSION_ACTION_REJECTED")
 
     def test_server_disabled_and_separate_prefix_do_not_touch_legacy_control(self):
         outputs = []

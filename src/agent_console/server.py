@@ -241,6 +241,9 @@ class Store:
 
 
 class Handler(BaseHTTPRequestHandler):
+    # Idle or slow loopback clients must not hold a server thread indefinitely.
+    timeout = 30
+
     def __init__(
         self, *args, store: Store, control=None, working_sessions=None, **kwargs
     ):

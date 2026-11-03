@@ -6,17 +6,25 @@
   const list = document.getElementById('working-session-list');
   const status = document.getElementById('working-session-status');
   let csrf = null, busy = false, refreshSequence = 0;
+  const drafts = new Map();
   const node = (tag, text, cls) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; };
   async function post(path, value) {
     const response = await fetch(path, {method:'POST',headers:{'Content-Type':'application/json','X-CAS-CSRF':csrf},body:JSON.stringify(value)});
-    if (!response.ok) throw new Error('Action rejected. Refresh the session; do not retry a consumed run.');
+    if (!response.ok) { let code=''; try { code=(await response.json()).error||''; } catch (_) {} throw new Error(code); }
     return response.json();
   }
+  const INPUT_MESSAGES = {
+    BOUNDED_NONSENSITIVE_TEXT_REQUIRED: 'Task rejected: title and instructions must be non-empty, within 80/2048 UTF-8 bytes (about 1000 Cyrillic characters), and must not look like credentials or keys.',
+    WORKING_SESSION_PLAN_FROZEN_OR_FULL: 'This session already has two tasks or its plan is frozen. Create a new session.',
+    ONE_OR_TWO_DRAFT_TASKS_REQUIRED: 'Add one or two tasks before freezing the plan.',
+  };
+  // UTF-8 byte count without TextEncoder (unpaired surrogates count as U+FFFD, 3 bytes).
+  const utf8Length = (value) => { let n = 0; for (const ch of value) { const c = ch.codePointAt(0); n += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4; } return n; };
   function action(label, fn) {
     const b=node('button',label); b.type='button';
     b.addEventListener('click', async () => { if(busy)return;busy=true;b.disabled=true;
       try { const reply=await fn();status.textContent=reply?.reason==='WORKING_SESSION_BUSY' ? 'Another session is running. Wait for it to finish, then run this task.' : reply?.reason==='WORKING_SESSION_INPUT_REQUIRES_NEW_TASK' ? 'This older task cannot be run as saved. Create a new task without credentials.' : 'Saved. Status updates appear below.'; }
-      catch (_) { status.textContent='Action rejected or outcome uncertain. Refresh; never replay a consumed run.'; }
+      catch (error) { status.textContent=INPUT_MESSAGES[error?.message] || 'Action rejected or outcome uncertain. Refresh; never replay a consumed run.'; }
       finally { busy=false;b.disabled=false;await refresh(); }
     }); return b;
   }
@@ -26,9 +34,15 @@
     for(const result of session.results) card.append(node('h4',`${result.stage}: ${result.result}`),node('pre',result.text));
     const base='/api/working-sessions/'+encodeURIComponent(session.session_id);
     if(session.status==='DRAFT' && session.tasks.length<2) {
-      const title=node('input');title.maxLength=80;title.placeholder='Task title';title.setAttribute('aria-label','Task title');
-      const prompt=node('textarea');prompt.maxLength=2048;prompt.placeholder='Non-sensitive text task (UTF-8 limit 2048 bytes)';prompt.setAttribute('aria-label','Task instructions');
-      card.append(title,prompt,action('Add task',()=>post(base+'/tasks',{title:title.value,prompt:prompt.value})));
+      // Drafts survive the periodic re-render and a rejected submit; cleared only after success.
+      const draft=drafts.get(session.session_id)||{title:'',prompt:''};
+      const title=node('input');title.maxLength=80;title.placeholder='Task title';title.setAttribute('aria-label','Task title');title.value=draft.title;
+      const prompt=node('textarea');prompt.placeholder='Non-sensitive text task (UTF-8 limit 2048 bytes)';prompt.setAttribute('aria-label','Task instructions');prompt.value=draft.prompt;
+      const counter=node('small');
+      const add=action('Add task',async()=>{const reply=await post(base+'/tasks',{title:title.value,prompt:prompt.value});drafts.delete(session.session_id);return reply;});
+      const update=()=>{drafts.set(session.session_id,{title:title.value,prompt:prompt.value});const n=utf8Length(prompt.value);counter.textContent=`${n} / 2048 bytes`;counter.className=n>2048?'over-limit':'';add.disabled=n>2048;};
+      title.addEventListener('input',update);prompt.addEventListener('input',update);update();
+      card.append(title,prompt,counter,add);
     }
     if(session.status==='DRAFT' && session.tasks.length>=1 && session.tasks.length<=2)card.append(action('Freeze plan and show local command',()=>post(base+'/prepare',{})));
     if(session.status==='PREPARED') {
