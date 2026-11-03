@@ -9,10 +9,10 @@ import unittest
 import zipfile
 from pathlib import Path
 
+from agent_runtime.tasks.repository_analysis import AnalysisControl
+
 from agent_console.repository_analysis import create_analysis_server
 from agent_console.server import create_server
-
-from agent_runtime.tasks.repository_analysis import AnalysisControl
 
 
 class AnalysisHTTPTests(unittest.TestCase):

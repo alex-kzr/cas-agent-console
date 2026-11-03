@@ -15,11 +15,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_console.server import Handler
-from agent_console.working_sessions import WorkingSessionBridge
 from agent_runtime.providers.claude.working_backend import DockerWorkingBackend
 from agent_runtime.tasks.working_sessions import WorkingSessions
 from agent_runtime.telemetry.recorder import atomic_json
+
+from agent_console.server import Handler
+from agent_console.working_sessions import WorkingSessionBridge
 
 ROOT = Path(__file__).resolve().parent
 PROJECT = Path(sys.modules["agent_console.server"].__file__).resolve().parents[4]

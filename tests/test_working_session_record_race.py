@@ -14,7 +14,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agent_runtime.telemetry.recorder import RunLock, atomic_json
-
 from test_working_sessions_crosslayer import PROJECT, ControlledBackend
 
 HERE = Path(__file__).resolve().parent
@@ -241,12 +240,17 @@ class RecordRaceTests(unittest.TestCase):
                     "session_id": d["session_id"],
                     "plan_hash": d["plan_hash"],
                     "project_root": str(PROJECT),
-                    "site_paths": [
-                        str(Path(p).resolve())
-                        for p in site.getsitepackages()
-                        if Path(p).is_dir()
-                        and Path(p).name in {"site-packages", "dist-packages"}
-                    ],
+                    # Under a bootstrapped -S interpreter, site.getsitepackages() names the
+                    # base installation; the active venv packages are only on sys.path.
+                    "site_paths": list(
+                        dict.fromkeys(
+                            str(Path(p).resolve())
+                            for p in [*sys.path, *site.getsitepackages()]
+                            if p
+                            and Path(p).is_dir()
+                            and Path(p).name in {"site-packages", "dist-packages"}
+                        )
+                    ),
                 },
             )
             errors = []
@@ -302,7 +306,12 @@ class RecordRaceTests(unittest.TestCase):
                         and time.monotonic() < deadline
                     ):
                         threading.Event().wait(0.01)
-                    self.assertTrue((root / "peer-ready").exists())
+                    if not (root / "peer-ready").exists():
+                        detail = "peer still running"
+                        if child.poll() is not None:
+                            out, err = child.communicate(timeout=2)
+                            detail = f"rc={child.returncode} stdout={out!r} stderr={err[-2000:]!r}"
+                        self.fail(f"peer did not acquire the lock: {detail}")
                     release.set()
                     self.assertTrue(busy.wait(2))
                     (root / "peer-release").write_text("release")

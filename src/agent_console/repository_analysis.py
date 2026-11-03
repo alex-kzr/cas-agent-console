@@ -51,7 +51,7 @@ class AnalysisHandler(Handler):
 
     def do_GET(self):
         path = unquote(urlsplit(self.path).path)
-        if not (path.startswith("/api/analysis") or path.startswith("/analysis")):
+        if not path.startswith(("/api/analysis", "/analysis")):
             return super().do_GET()
         try:
             self.origin()
@@ -67,7 +67,9 @@ class AnalysisHandler(Handler):
             if path == "/api/analysis":
                 from agent_runtime.tasks import review_profile
                 from agent_runtime.tasks.repository_analysis import QUESTIONS, SAMPLE
-                from agent_runtime.tasks.repository_analysis_sdk import LIVE_ANALYSIS_ENABLED
+                from agent_runtime.tasks.repository_analysis_sdk import (
+                    LIVE_ANALYSIS_ENABLED,
+                )
 
                 try:
                     profile = self.analysis.profile

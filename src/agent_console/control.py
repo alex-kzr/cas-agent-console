@@ -33,7 +33,7 @@ class ControlBridge:
         handler.connection.settimeout(5)
         value = json.loads(handler.rfile.read(length))
         if not isinstance(value, dict):
-            raise ValueError('Expected control object')
+            raise ValueError('Expected control object')  # noqa: TRY004 - closed HTTP error contract
         if handler.path == '/api/tasks':
             if set(value) - {'resumes_run_id'}:
                 raise ValueError('Unknown task fields')

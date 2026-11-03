@@ -15,7 +15,14 @@ plan = json.loads((root / "peer-plan.json").read_text())
 for path in plan["site_paths"]:
     assert Path(path).is_dir() and Path(path).name in {"site-packages", "dist-packages"}
     site.addsitedir(path)
-spec = importlib.util.spec_from_file_location("candidate_peer", Path(sys.argv[2]))
+candidate = Path(sys.argv[2]).resolve()
+# The candidate lives at <src>/agent_runtime/tasks/working_sessions.py; its package
+# imports need <src> even when the runtime is not installed into site-packages.
+package_root = candidate.parents[2]
+assert (package_root / "agent_runtime" / "__init__.py").is_file()
+if str(package_root) not in sys.path:
+    sys.path.insert(0, str(package_root))
+spec = importlib.util.spec_from_file_location("candidate_peer", candidate)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 peer = module.WorkingSessions(root, root=Path(plan["project_root"]))

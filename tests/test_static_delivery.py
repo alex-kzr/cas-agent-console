@@ -20,10 +20,12 @@ class StaticDeliveryTests(unittest.TestCase):
                 headers={"Host": "127.0.0.1:8765"},
                 server=types.SimpleNamespace(server_port=8765),
                 path=path,
-                respond=lambda body, media_type, status=200: outputs.append(
+                respond=lambda body, media_type, status=200, outputs=outputs: outputs.append(
                     (status, media_type, body)
                 ),
-                json=lambda body, status=200: outputs.append((status, "error", body)),
+                json=lambda body, status=200, outputs=outputs: outputs.append(
+                    (status, "error", body)
+                ),
             )
             server.Handler.do_GET(handler)
             self.assertEqual(len(outputs), 1)
